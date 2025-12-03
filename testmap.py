@@ -1,3 +1,20 @@
+
+
+import time
+from client import ClientSocket
+from argparse import ArgumentParser
+
+# config.py
+SERVER_IP = "127.0.0.1"  # L'IP du serveur (en local pour les tests)
+SERVER_PORT = 5555       # Le port utilisé par le serveur
+
+
+
+
+
+
+
+
 import socket
 from typing import List
 import time
@@ -280,13 +297,13 @@ def find_valid_targets(group_pos, group_count):
             enemy_count = vampires
         
         if enemy_count > 0:
-            if group_count >= 1.5 * enemy_count:
+            if group_count >= 2 * enemy_count:
                 distance = chebyshev_distance(group_pos, pos)
                 targets.append((pos, enemy_count, distance, 'enemy'))
         
         # Check humans
         if humans > 0:
-            if group_count >= 1 * humans:
+            if group_count >= 1.1 * humans:
                 distance = chebyshev_distance(group_pos, pos)
                 targets.append((pos, humans, distance, 'human'))
     
@@ -428,43 +445,55 @@ def COMPUTE_NEXT_MOVE(game_state):
 
 
 
-
-
-
-
-
-
 # --- Main loop ---
-def play_game(strategy, args):
-    client_socket = ClientSocket(args.ip, args.port)
-    client_socket.send_nme("MyAI")  # change your AI name here
+def play_game(args):
+    try:
+        print(f"[MAIN] Connecting to {args.ip}:{args.port} ...")
+        client = ClientSocket(args.ip, args.port)
+        print("[MAIN] Connected")
 
-    # Receive initial setup messages
-    for _ in range(4):
-        msg = client_socket.get_message()
-        UPDATE_GAME_STATE(msg)
+        client.send_nme("MY_AI")
+        print("[MAIN] Name sent")
 
-    # Start game loop
-    while True:
-        msg = client_socket.get_message()
-        UPDATE_GAME_STATE(msg)
+        # Handshake: SET → HUM → HME → MAP
+        UPDATE_GAME_STATE(client.get_message())
+        UPDATE_GAME_STATE(client.get_message())
+        UPDATE_GAME_STATE(client.get_message())
+        UPDATE_GAME_STATE(client.get_message())
+        print("[MAIN] Setup complete. Game loop...")
 
-        if msg[0] == "upd":
-            nb_moves, moves = COMPUTE_NEXT_MOVE(GAME_STATE)
-            client_socket.send_mov(nb_moves, moves)
-        time.sleep(0.1)  # small delay to prevent busy waiting
+        while True:
+            try:
+                time.sleep(0.5)
+                message = client.get_message()
+                if message is None:
+                    print("[MAIN] Connection lost")
+                    break
 
+                UPDATE_GAME_STATE(message)
 
-import random
+                if message[0] == "upd":
+                    nb, moves = COMPUTE_NEXT_MOVE(GAME_STATE)
+                    client.send_mov(nb, moves)
+            except EndException:
+                print("[MAIN] END → new game expected")
+                # ici on pourrait réinitialiser l'état si plusieurs parties s’enchaînent
+                continue
+            except ByeException:
+                print("[MAIN] BYE → closing")
+                break
 
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        import traceback
+        traceback.print_exc()
 
-
-# --- Entry point ---
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument('--ip', type=str, default='localhost')
-    parser.add_argument('--port', type=int, default=5555)
-    args = parser.parse_args()
+    # parser.add_argument('ip', type=str, help='IP address')
+    # parser.add_argument('port', type=int, help='Port')
+    # args = parser.parse_args()
+    play_game(args=type('', (), {'ip': '127.0.0.1', 'port': 5555})())
 
-    play_game(strategy=None, args=args)
 
+    
